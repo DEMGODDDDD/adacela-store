@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -5,6 +6,7 @@ import {
   Card,
   CardMedia,
   Chip,
+  CircularProgress,
   Divider,
   Rating,
   Stack,
@@ -13,6 +15,8 @@ import {
 import AddShoppingCartIcon from "@mui/icons-material/AddShoppingCart";
 import BoltIcon from "@mui/icons-material/Bolt";
 import { Link as RouterLink, useOutletContext, useParams } from "react-router-dom";
+import api from "../api/axios";
+import { normalizeProduct } from "../api/products";
 
 const formatPrice = (price) =>
   new Intl.NumberFormat("en-PH", {
@@ -20,15 +24,73 @@ const formatPrice = (price) =>
     currency: "PHP",
   }).format(Number(price));
 
-export default function ProductDetailsPage({ products }) {
+export default function ProductDetailsPage() {
   const { id } = useParams();
-  const { onAddToCart, onBuyNow } = useOutletContext();
-  const product = products.find((item) => String(item.id) === id);
+  const { onAddToCart, onBuyNow, productsRevision } = useOutletContext();
+  const [requestState, setRequestState] = useState({
+    id: null,
+    loading: true,
+    error: "",
+    product: null,
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+
+    api
+      .get(`/products/${id}`, { signal: controller.signal })
+      .then((response) => {
+        const product = normalizeProduct(response.data?.data ?? response.data);
+
+        if (active) {
+          setRequestState({ id, loading: false, error: "", product });
+        }
+      })
+      .catch((requestError) => {
+        if (!active || requestError.code === "ERR_CANCELED") return;
+
+        setRequestState({
+          id,
+          loading: false,
+          error:
+            requestError.response?.status === 404
+              ? "Product not found."
+              : "Unable to load this product. Check the API connection and try again.",
+          product: null,
+        });
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [id, productsRevision]);
+
+  const isCurrentRequest = requestState.id === id;
+  const loading = !isCurrentRequest || requestState.loading;
+  const product = isCurrentRequest ? requestState.product : null;
+
+  if (loading) {
+    return (
+      <main className="page-container">
+        <Box
+          role="status"
+          aria-label="Loading product"
+          sx={{ display: "flex", justifyContent: "center", py: 6 }}
+        >
+          <CircularProgress />
+        </Box>
+      </main>
+    );
+  }
 
   if (!product) {
     return (
       <main className="page-container">
-        <Alert severity="warning">Product not found.</Alert>
+        <Alert severity={requestState.error === "Product not found." ? "warning" : "error"}>
+          {requestState.error || "Product not found."}
+        </Alert>
         <Button component={RouterLink} to="/" sx={{ mt: 2 }}>
           Back to products
         </Button>
